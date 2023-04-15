@@ -28,5 +28,22 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+    <key>NSNetworkUsageDescription</key>
+    <string>Network access required</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Allow access to your device's storage to save and load files.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Allow access to your device's photo library to select and upload images.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Allow access to your Downloads folder to import media files.</string>
+    <key>com.apple.security.scripting-targets</key>
+    <dict>
+        <key>com.example.whispercppapp</key>
+        <array>
+            <string>/bin/bash</string>
+            <string>/Users/bishal/Library/Containers/com.example.whispercppapp/Data/exe/whispercpp</string>
+        </array>
+    </dict>
+
 </dict>
 </plist>

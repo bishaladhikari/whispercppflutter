@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -27,6 +28,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:whispercppapp/bloc/transcriptBloc.dart';
 
 const APPNAME = 'org.hogel.whispercppapp';
 
@@ -165,7 +167,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        primarySwatch: Colors.blueGrey,
       ),
       home: HomeWidget(),
     );
@@ -180,6 +182,8 @@ class HomeWidget extends StatefulWidget {
 }
 
 class _HomeWidgetState extends State<HomeWidget> {
+  final StreamController<int> _myTranscriptStreamController = StreamController<int>();
+  late Stream transcriptStream;
   XFile? _dropFile = null;
   bool _dragging = false;
   bool _converting = false;
@@ -195,6 +199,7 @@ class _HomeWidgetState extends State<HomeWidget> {
   File? _modelFile;
   String? _ffmpeg;
   String? _whispercpp;
+  String? _stream;
 
   String _model = MODELS.first;
   String _lang = LANGS.first;
@@ -286,7 +291,7 @@ class _HomeWidgetState extends State<HomeWidget> {
                     Container(width: 10),
                     ElevatedButton(
                       onPressed: _runnable() ? _runRecognition : null,
-                      child: _converting ? const CircularProgressIndicator(color: Colors.blue) : const Icon(Icons.play_arrow),
+                      child: _converting ? const CircularProgressIndicator(color: Colors.black26) : const Icon(Icons.play_arrow),
                     ),
                   ],
                 ),
@@ -314,9 +319,23 @@ class _HomeWidgetState extends State<HomeWidget> {
                     ),
                   ],
                 ),
-                TextArea(
-                  text: _withTimings ? _transcriptTextWithTimings : _transcriptText,
-                  height: 200,
+                StreamBuilder(
+                  stream: transcriptBloc.transcriptText.stream,
+                  builder: (context, snapshot) {
+                    print("streambuilder called");
+                    var streamedTranscriptedtext = '';
+                    if (snapshot.hasError) {
+                      streamedTranscriptedtext= snapshot.error.toString();
+                    }
+                    if (snapshot.hasData) {
+                      print("has data");
+                      streamedTranscriptedtext = snapshot.data.toString();
+                    }
+                    return TextArea(
+                      text: _withTimings ? _transcriptTextWithTimings : streamedTranscriptedtext,
+                      height: 200,
+                    );
+                  }
                 ),
                 Container(height: 10),
                 SaveButton(_withTimings ? _transcriptTextWithTimings : _transcriptText),
@@ -327,7 +346,8 @@ class _HomeWidgetState extends State<HomeWidget> {
     );
   }
 
-  bool _runnable() => !_converting && _dropFile != null;
+  // bool _runnable() => !_converting && _dropFile != null;
+  bool _runnable() => !_converting;
 
   Future<void> _initialize() async {
     Directory userTempDir = await getTemporaryDirectory();
@@ -354,11 +374,14 @@ class _HomeWidgetState extends State<HomeWidget> {
     if (bool.fromEnvironment('dart.vm.product')) {
       var ffmpegAssetFile = File(path.join(_assetsDir!.path, 'exe', 'ffmpeg'));
       var whispercppAssetFile = File(path.join(_assetsDir!.path, 'exe', 'whispercpp'));
+      var streamAssetFile = File(path.join(_assetsDir!.path, 'exe', 'stream'));
       _ffmpeg = ffmpegAssetFile.path;
       _whispercpp = whispercppAssetFile.path;
+      _stream = streamAssetFile.path;
     } else {
       _ffmpeg = path.join(Directory.current.path, 'exe', 'ffmpeg');
       _whispercpp = path.join(Directory.current.path, 'exe', 'whispercpp');
+      _stream = path.join(Directory.current.path, 'exe', 'stream');
     }
   }
 
@@ -371,8 +394,9 @@ class _HomeWidgetState extends State<HomeWidget> {
     });
     try {
       await _downloadModel();
-      File wavfile = await _convertWavfile(_dropFile!.path);
-      await _transcript(wavfile);
+      // File wavfile = await _convertWavfile(_dropFile!.path);
+      // await _transcript(wavfile);
+      await _transcriptRealtimeWithStream();
     } catch (e) {
       _consoleWrite(e.toString());
     } finally {
@@ -414,6 +438,26 @@ class _HomeWidgetState extends State<HomeWidget> {
     return wavfile;
   }
 
+  Future<void> _transcriptRealtimeWithStream() async {
+    var args = [
+      '-m', _modelFile!.path,
+      '-t', '8',
+      '--step', '500',
+      '--length', '5000',
+    ];
+    // var result = await _runCommand(_whispercpp!, args);
+    var result = await _runCommand(_stream!, args);
+
+    // var textWithTimings = result.stdout.trim();
+    // var textWithTimings = result.stdout.trim();
+    // transcriptBloc.transcriptText.sink.add(textWithTimings);
+    // var text = textWithTimings.replaceAll(PATTERN_TIMINGS, '');
+
+    // setState(() {
+    //   _transcriptText = textWithTimings;
+    //   _transcriptTextWithTimings = textWithTimings;
+    // });
+  }
   Future<void> _transcript(File wavfile) async {
     var args = [
       '-m', _modelFile!.path,
@@ -440,9 +484,17 @@ class _HomeWidgetState extends State<HomeWidget> {
       stderr += line;
       _consoleWrite(line);
     });
-    process.stdout.transform(utf8.decoder).forEach((line) {
-      stdout += line;
-      _consoleWrite(line);
+    // process.stdout.transform(utf8.decoder).forEach((line) {
+    //   stdout += line;
+    //   _consoleWrite(line);
+    //   transcriptBloc.transcriptText.sink.add(line);
+    // });
+    final RegExp exp = RegExp(r'\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]');
+    process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+      final cleanLine = line.replaceAll(exp, '');
+      stdout += cleanLine;
+        _consoleWrite(cleanLine);
+        transcriptBloc.transcriptText.sink.add(stdout.trim());
     });
 
     var exitCode = await process.exitCode;
